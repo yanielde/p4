@@ -3,7 +3,7 @@
 #include "mfs.h"
 
 #define BUFFER_SIZE (1000)
-//export LD_LIBRARY_PATH=.
+// export LD_LIBRARY_PATH=.
 // client code
 int main(int argc, char *argv[]) {
     // struct sockaddr_in addrSnd, addrRcv;

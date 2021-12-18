@@ -10,7 +10,7 @@ int MFS_Init(char *hostname, int port){
 	if(fd>0){
 		UDP_FillSockAddr(&addr,hostname,port);
 	}
-	return fd;
+	return 0;
 }
 int MFS_Lookup(int pinum, char *name){
 	if(sizeof(name)>29){
