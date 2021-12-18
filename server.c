@@ -15,7 +15,15 @@ int num_imap_chunks;
 int main(int argc, char *argv[]) {
     //int port = 15000;
 
-    int port = atoi(argv[1]);
+    int port;
+    int fd;
+    if(argc == 1){
+        port = 15000;
+        fd = open("image", O_RDWR | O_CREAT, 0664);
+    }else{
+        port = atoi(argv[1]);
+        fd = open(argv[2], O_RDWR | O_CREAT, 0664);
+    }
 	// //char filename[60];
 	// //strcpy(filename, argv[2]);
 
@@ -30,7 +38,7 @@ int main(int argc, char *argv[]) {
     if(sd>0){
 		UDP_FillSockAddr(&addr,"localhost",port+1);
 	}
-    int fd = open(argv[2], O_RDWR | O_CREAT, 0664);
+    //int fd = open(argv[2], O_RDWR | O_CREAT, 0664);
     assert(sd > -1);
 
     Checkpoint checkpoint;
@@ -71,10 +79,16 @@ int main(int argc, char *argv[]) {
     checkpoint.imap_arr[0] = checkpoint.end_ptr;
     checkpoint.end_ptr += sizeof(first_imap);
 
+
     char buffer[sizeof(Message)];
+    // printf("addr %p", map[0]);
+    // Inode node;
+    // lseek(fd, (off_t)map[0], SEEK_SET);
+    // read(fd, &node, sizeof(Inode));
+    // printf("nodesize: %d", node.size);
 
     while(1){
-        printf("server:: waiting...\n");
+        //printf("server:: waiting...\n");
     
         int rc = UDP_Read(sd, &addr,buffer, sizeof(Message));
         if(rc<=0){
@@ -97,7 +111,7 @@ int main(int argc, char *argv[]) {
                 lseek(fd, (off_t)node.ptrs[0], SEEK_SET);
                 do {
                     read(fd, &dir, sizeof(MFS_DirEnt_t));
-                    //printf("dirname: %s\n", dir.name);
+                    printf("dirname: %s\n", dir.name);
                     if(strcmp(dir.name, msg.name)==0){
                         msg.ret = dir.inum;
                         break;
@@ -121,8 +135,18 @@ int main(int argc, char *argv[]) {
                 //printf("Stat Node addr: %p", map[msg.inum]);
 
                 MFS_Stat_t stat;
-                stat.type = node.type;;
-                stat.size = node.size;
+                stat.type = node.type;
+                int sum = 0;
+                //find largest index block being used, multiply by 4096
+                if(node.type == 1){
+                    for(int i=13;i>=0;i--){
+                        if(node.ptrs[i]!=0){
+                            sum+=(i+1)*4096;
+                            break;
+                        }
+                    }
+                }
+                stat.size = sum;
                 msg.m = stat;
 
             }     
@@ -200,67 +224,66 @@ int main(int argc, char *argv[]) {
 
         }
         else if(msg.MFS_type == CREAT){
-            printf("size: %d, type: %d, pinum: %d name:%s \n",rc, msg.MFS_type, msg.pinum , msg.name);
+            //printf("size: %d, type: %d, pinum: %d name:%s \n",rc, msg.MFS_type, msg.pinum , msg.name);
 
             Inode node;
             lseek(fd, (off_t)map[msg.pinum], SEEK_SET);
             read(fd, &node, sizeof(Inode));
             msg.ret = -1;
+            
             if(node.type == MFS_DIRECTORY){
                 
                 MFS_DirEnt_t dir;
                 
-                for (int i = 0; i<node.size/MFS_BLOCK_SIZE;i++){
+                lseek(fd, (off_t)node.ptrs[0], SEEK_SET);
+                read(fd, &dir, sizeof(MFS_DirEnt_t));
+                void* write_offset;
+                
+                while(dir.name[0]!=0) {
+                    read(fd, &dir, sizeof(MFS_DirEnt_t));
                     
-                    lseek(fd, (off_t)node.ptrs[i], SEEK_SET);
-                    do{
-                        read(fd, &dir, sizeof(MFS_DirEnt_t));
-
-                        printf("checkpoint 0 --> dirname:%s, addr:%p \n", dir.name,node.ptrs[0]);
-                        if(strcmp(dir.name, msg.name)==0){
-                            dir.inum=num_inodes;
-                            strcpy(dir.name,msg.name);
-                            write(fd,&dir,sizeof(MFS_DirEnt_t));
-
-                            void* imap[16];
-                            lseek(fd,(off_t)checkpoint.end_ptr-sizeof(imap), SEEK_SET);
-
-                            if((num_inodes)%16 == 0){
-                                imap[0] = checkpoint.end_ptr+MFS_BLOCK_SIZE;
-                            }else{
-                                read(fd, &imap, sizeof(imap));
-                                imap[num_inodes%16] = checkpoint.end_ptr + MFS_BLOCK_SIZE;
-                            } 
-                            
-                            lseek(fd,(off_t)checkpoint.end_ptr, SEEK_SET);
-                            char pad[MFS_BLOCK_SIZE];
-                            write(fd,&pad,MFS_BLOCK_SIZE);
-
-                            Inode new_node;
-                            new_node.size = MFS_BLOCK_SIZE;
-                            new_node.type = msg.type;
-                            
-                            checkpoint.end_ptr+=MFS_BLOCK_SIZE;
-
-                            write(fd,&new_node, sizeof(Inode));
-                            write(fd,imap, sizeof(imap));
-
-                            map[num_inodes] = checkpoint.end_ptr;
-                            num_inodes+=1;
-
-                            checkpoint.end_ptr+= sizeof(Inode);
-                            checkpoint.imap_arr[num_inodes/16] = checkpoint.end_ptr;
-                            checkpoint.end_ptr+= sizeof(imap);
-
-                            msg.ret = 0;
-                            break;
-        
-                        }
-                    }while(dir.name[0]!=0);
-                    
+                    write_offset += sizeof(MFS_DirEnt_t);  
                 }
-              
+                lseek(fd, (off_t)node.ptrs[0]+(off_t)write_offset, SEEK_SET);
+                MFS_DirEnt_t new_dir;
+                new_dir.inum=num_inodes;
+                strcpy(new_dir.name,msg.name);
+                printf("name: %s", new_dir.name);
+                write(fd,&new_dir,sizeof(MFS_DirEnt_t));
+                void* imap[16];
+                lseek(fd,(off_t)checkpoint.end_ptr-sizeof(imap), SEEK_SET);
+
+                if((num_inodes)%16 == 0){
+                    imap[0] = checkpoint.end_ptr+MFS_BLOCK_SIZE;
+                }else{
+                    read(fd, &imap, sizeof(imap));
+                    imap[num_inodes%16] = checkpoint.end_ptr + MFS_BLOCK_SIZE;
+                } 
+                            
+                
+                lseek(fd,(off_t)checkpoint.end_ptr, SEEK_SET);
+                char pad[MFS_BLOCK_SIZE];
+                write(fd,&pad,MFS_BLOCK_SIZE);
+
+                Inode new_node;
+                new_node.size = MFS_BLOCK_SIZE;
+                new_node.type = msg.type;
+                        
+                checkpoint.end_ptr+=MFS_BLOCK_SIZE;
+                write(fd,&new_node, sizeof(Inode));
+                write(fd,imap, sizeof(imap));
+
+                map[num_inodes] = checkpoint.end_ptr;
+                num_inodes+=1;
+
+                checkpoint.end_ptr+= sizeof(Inode);
+                checkpoint.imap_arr[num_inodes/16] = checkpoint.end_ptr;
+                checkpoint.end_ptr+= sizeof(imap);
+
+                msg.ret = 0;               
+                
             }
+            
             memcpy((Message*)buffer, &msg, sizeof(Message));
             rc = UDP_Write(sd, &addr, buffer, sizeof(Message));   
         }
@@ -314,5 +337,4 @@ int main(int argc, char *argv[]) {
     }
     return 0;
 }
-
 

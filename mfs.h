@@ -1,7 +1,7 @@
 #ifndef __MFS_h__
 #define __MFS_h__
 
-#define MFS_DIRECTORY    (10)
+#define MFS_DIRECTORY    (0)
 #define MFS_REGULAR_FILE (1)
 
 #define MFS_BLOCK_SIZE   (4096)
